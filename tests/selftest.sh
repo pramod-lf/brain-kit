@@ -591,6 +591,65 @@ assert_contains "$OUT" "Meetings/$M" "query search finds a decision"
 assert_contains "$(eb query search "scope creep" --type task)" "(0)" "query search --type"
 assert_contains "$(eb query transcripts)" "Transcripts (0)" "query transcripts (none yet)"
 
+# ---- repo: multi-repo project tracking ---------------------------------------
+RD="$ER/repo-dirs"
+mkdir -p "$RD/harbor-api" "$RD/harbor-web" "$RD/unrelated"
+# Each scratch dir is its own git repo boundary (as a real tracked repo would
+# be) and carries no remote, so `git remote get-url origin` reports none
+# rather than walking up and finding brain-kit's OWN remote.
+for d in harbor-api harbor-web unrelated; do git init -q "$RD/$d"; done
+(cd "$RD/harbor-api" && eb capture repo --name api --project harbor-rewrite --role api) >/dev/null
+(cd "$RD/harbor-web" && eb capture repo --name web --project harbor-rewrite --role frontend) >/dev/null
+assert_file_in "$EW/Repos/harbor-rewrite-api.md"
+grep -q "^project: harbor-rewrite" "$EW/Repos/harbor-rewrite-api.md" \
+  && ok "capture repo records its project" || fail "repo project field"
+grep -qF -- "$(native "$RD/harbor-api")" "$EW/Repos/harbor-rewrite-api.md" \
+  && ok "capture repo defaults path to cwd" || fail "repo path default"
+
+expect_refused "capture repo with an unknown project" eb capture repo --name ghost --project no-such-project
+
+# re-capturing merges without changing anything already set
+BEFORE_API=$(cat "$EW/Repos/harbor-rewrite-api.md")
+(cd "$RD/harbor-api" && eb capture repo --name api --project harbor-rewrite --role api) >/dev/null
+assert_eq "$(cat "$EW/Repos/harbor-rewrite-api.md")" "$BEFORE_API" "re-capturing an unchanged repo is idempotent"
+
+eb append repo harbor-rewrite-api --text "wired up the auth endpoint" >/dev/null
+grep -q "wired up the auth endpoint" "$EW/Repos/harbor-rewrite-api.md" \
+  && ok "append repo logs to Activity Log" || fail "append repo"
+assert_contains "$(eb append repo harbor-rewrite-api --text "wired up the auth endpoint")" "UNCHANGED" \
+  "append repo is idempotent"
+
+# cwd auto-detect: path match, including a sibling's own activity log line
+OUT=$(cd "$RD/harbor-api" && eb query repo)
+assert_contains "$OUT" "[[Repos/harbor-rewrite-api]]" "query repo auto-detects by path"
+assert_contains "$OUT" "harbor-rewrite-web" "query repo lists sibling repos"
+assert_contains "$OUT" "wired up the auth endpoint" "query repo shows its own activity log"
+OUT=$(cd "$RD/harbor-web" && eb query repo)
+assert_contains "$OUT" "wired up the auth endpoint" "query repo shows a sibling's last activity line"
+
+# no signal at all -> a clear, deterministic error naming known repos
+OUT=$(cd "$RD/unrelated" && eb query repo 2>&1)
+assert_contains "$OUT" "No repo note matches the current directory" "query repo: no auto-detect signal"
+assert_contains "$OUT" "harbor-rewrite-api" "query repo: no-match error lists known repos"
+
+# ambiguity: two repo notes sharing a path is a terminal error, never a
+# silent fall-through to the (weaker) basename stage
+eb capture repo --name docs --project harbor-rewrite --path "$RD/harbor-web" >/dev/null
+OUT=$(cd "$RD/harbor-web" && eb query repo 2>&1)
+assert_contains "$OUT" "share the same path" "query repo: ambiguous path is a terminal error"
+eb set repo harbor-rewrite-docs --path none >/dev/null  # clear the collision
+
+# explicit name lookup, set, and project/repos aggregation
+assert_contains "$(eb query repo api)" "harbor-rewrite-api" "query repo <name> exact match"
+eb set repo harbor-rewrite-web --status archived >/dev/null
+assert_contains "$(eb query repos --status archived)" "harbor-rewrite-web" "query repos --status archived"
+assert_contains "$(eb query repos --status active)" "harbor-rewrite-api" "query repos --status active"
+OUT=$(eb query project harbor-rewrite)
+assert_contains "$OUT" "## Repos (3)" "query project aggregates its repos"
+assert_contains "$OUT" "harbor-rewrite-api" "query project lists a repo"
+
+assert_contains "$(eb lint)" "lint: clean" "vault lints clean after repo tests"
+
 # determinism: the same write twice leaves the vault byte-identical
 BEFORE=$(esnap)
 eb set task $T --priority low >/dev/null

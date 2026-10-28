@@ -8,7 +8,8 @@ from .core import (die, default_org, iso_week, owner_link, owner_name, parse_dat
                    parse_week, person_filename, require_slug, self_words,
                    slug_key, slugify, today, wikilink_target)
 from .people import AmbiguousPerson, people_stems, resolve_stem
-from .projects import active_project_slugs, project_rels
+from .projects import active_project_slugs, project_rels, require_project_slug
+from .repos import git_remote_url
 from .body import sync_meta
 from .writer import Plan, ensure_line_in_section, render
 
@@ -586,6 +587,69 @@ def cmd_capture_project(ctx, mode, args):
                                   "context": flatten_headings(context)},
                       prune=True, keep=("Context", "Milestones"))
         plan.put(f"Projects/{slug}.md", fm, body)
+    plan.execute()
+
+
+def cmd_capture_repo(ctx, mode, args):
+    """Register a repo under a project. Run from inside the repo's checkout
+    with no --path/--remote and both default from cwd — the one-command
+    affordance that makes `query repo` (no name) auto-detect it later."""
+    plan = Plan(ctx, mode)
+    project = require_project_slug(plan.vault, args.project.strip())
+    name_slug = require_slug(slug_key(args.name, 5), "--name", args.name)
+    slug = f"{project}-{name_slug}"
+    rel = f"Repos/{slug}.md"
+    role = args.role.strip() if args.role else None
+    path = str(Path(args.path).expanduser().resolve()) if args.path else None
+    remote = args.remote.strip() if args.remote else None
+
+    existing = plan.load(rel)
+    if existing is None:
+        if path is None:
+            path = str(Path.cwd().resolve())
+        if remote is None:
+            remote = git_remote_url(Path.cwd())
+        fm = _base_fm("repo", today().isoformat())
+        fm.update({"project": project, "status": args.status or "active",
+                   "role": role, "path": path, "remote": remote})
+        body = render("repo", {
+            "name": args.name.strip(),
+            "project_display": f"[[Projects/{project}]]",
+            "role_display": role or "—",
+            "purpose": flatten_headings((args.purpose or "").strip())})
+        plan.put(rel, fm, body)
+    else:
+        fm, body = existing
+        changed = set()
+        if fm.get("project") != project:
+            note(f"{rel} belongs to project={fm.get('project')}; to move it "
+                 f"run: brain set repo {slug} --project {project}")
+        if args.status and args.status != fm.get("status"):
+            note(f"{rel} keeps status={fm.get('status')}; to change it run: "
+                 f"brain set repo {slug} --status {args.status}")
+        if role:
+            if not fm.get("role"):
+                fm["role"] = role
+                changed.add("role")
+            elif fm["role"] != role:
+                note(f"{rel} keeps role={fm['role']!r}; to change it run: "
+                     f"brain set repo {slug} --role \"{role}\"")
+        filled = False
+        if path and not fm.get("path"):
+            fm["path"] = path
+            filled = True
+        if remote and not fm.get("remote"):
+            fm["remote"] = remote
+            filled = True
+        if args.purpose:
+            note(f"{rel} already exists; its purpose was not changed. To add "
+                 f"text run: brain append repo {slug} --text \"...\"")
+        if changed:
+            plan.put(rel, fm, sync_meta("repo", fm, body, fields=changed))
+        elif filled:
+            plan.put(rel, fm, body)
+        else:
+            plan.touch(rel)
     plan.execute()
 
 

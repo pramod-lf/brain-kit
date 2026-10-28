@@ -7,14 +7,14 @@ import sys
 import unicodedata
 from pathlib import Path
 
-FOLDERS = ["Daily", "Meetings", "Transcripts", "Interviews", "Projects",
+FOLDERS = ["Daily", "Meetings", "Transcripts", "Interviews", "Projects", "Repos",
            "People", "Tasks", "Follow-ups", "Content", "Reference", "_templates"]
 
 TYPE_BY_FOLDER = {
     "Daily": "daily", "Meetings": "meeting", "Transcripts": "transcript",
-    "Interviews": "interview", "Projects": "project", "People": "person",
-    "Tasks": "task", "Follow-ups": "followup", "Content": "content",
-    "Reference": "reference",
+    "Interviews": "interview", "Projects": "project", "Repos": "repo",
+    "People": "person", "Tasks": "task", "Follow-ups": "followup",
+    "Content": "content", "Reference": "reference",
 }
 
 FOLDER_BY_TYPE = {v: k for k, v in TYPE_BY_FOLDER.items()}
@@ -28,6 +28,7 @@ ENUMS = {
     "followup.status": {"waiting", "done"},
     "project.status": {"active", "paused", "done"},
     "project.area": {"client", "internal", "admin", "learning"},
+    "repo.status": {"active", "archived"},
     "content.status": {"draft", "published"},
 }
 
@@ -49,6 +50,7 @@ REQUIRED = {
     "person": ["org", "role", "email"],
     "followup": ["who", "about", "opened", "status"],
     "project": ["status", "area"],
+    "repo": ["project", "status", "role", "path", "remote"],
     "content": ["status"],
     "daily": [], "transcript": [], "reference": [],
 }
@@ -58,6 +60,7 @@ NULLABLE = {
     "task": {"project", "source"},
     "meeting": {"project", "transcript", "attendees"},
     "person": {"role", "email"},
+    "repo": {"role", "path", "remote"},
     "project": set(), "followup": set(), "interview": set(), "content": set(),
 }
 
@@ -69,6 +72,7 @@ META_LINES = {
     "followup": {"who": "Who", "about": "About"},
     "interview": {"role": "Role", "round": "Round", "verdict": "Verdict"},
     "meeting": {"date": "Date", "project": "Project", "attendees": "Attendees"},
+    "repo": {"project": "Project", "role": "Role"},
 }
 
 
@@ -76,7 +80,7 @@ def meta_value(ntype, field, fm):
     """What the body line for `field` should say; None means no line at all
     (only people omit empty fields; everything else shows an em dash)."""
     v = fm.get(field)
-    if ntype == "meeting" and field == "project":
+    if ntype in ("meeting", "repo") and field == "project":
         return f"[[Projects/{v}]]" if v else "\u2014"
     if ntype == "meeting" and field == "attendees":
         return ", ".join(v or []) or "\u2014"
@@ -96,6 +100,7 @@ NAMING = {
     "Transcripts": re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*-\d{4}-\d{2}-\d{2}-transcript\.md$"),
     "Interviews": re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*-\d{4}-\d{2}-\d{2}\.md$"),
     "Projects": re.compile(r"^[a-z0-9][a-z0-9\-]*(/[a-z0-9][a-z0-9\-]*)*\.md$"),
+    "Repos": re.compile(r"^[a-z0-9][a-z0-9\-]*\.md$"),
     "People": re.compile(r"^[A-Z][A-Za-z]*(-[A-Z][A-Za-z]*)*\.md$"),
     "Tasks": re.compile(r"^[a-z0-9][a-z0-9\-]*\.md$"),
     "Follow-ups": re.compile(r"^[a-z0-9][a-z0-9\-]*\.md$"),

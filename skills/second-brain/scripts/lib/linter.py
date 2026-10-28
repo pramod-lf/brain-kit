@@ -196,6 +196,17 @@ def lint_note(rel, fm, body, idx):
             warns.append((rel, "project", f"no project note for '{proj}' "
                                           "(create it with `brain capture project`)"))
 
+    # a repo's project is required and validated at write time (unlike
+    # task/meeting's advisory, nullable project), so an unresolved one here
+    # is an ERROR, not a warning.
+    if ntype == "repo":
+        proj = fm.get("project")
+        if isinstance(proj, str) and ("[[" in proj or "/" in proj):
+            e("project", "project must be a plain slug")
+        elif proj and f"Projects/{proj}" not in idx and f"Projects/{proj}/{proj}" not in idx:
+            e("project", f"no project note for '{proj}' "
+                         "(create it with `brain capture project`)")
+
     # body meta lines (`**Owner:** ...`) mirror frontmatter; flag drift
     for field in sorted(drifted_fields(ntype, fm, body)):
         label = META_LINES[ntype][field]

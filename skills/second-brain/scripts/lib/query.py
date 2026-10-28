@@ -12,6 +12,7 @@ from .linter import vault_files
 from .people import people_stems, resolve_stem
 from .projects import project_rels
 from .refs import clean_ref
+from .repos import git_remote_url, normalize_remote
 from .writer import section_text
 
 
@@ -241,6 +242,15 @@ def cmd_project(vault, args):
     print(f"\n## Meetings ({len(meetings)}, newest first)")
     for r, f, b in meetings[:10]:
         print(f"- {f.get('date')} [[{r[:-3]}]] — {_title(r, b)}")
+    repos = sorted(((r, f, b) for r, f, b in _repo_notes(vault)
+                    if f.get("project") == slug), key=lambda x: Path(x[0]).stem)
+    print(f"\n## Repos ({len(repos)})")
+    for r, f, b in repos:
+        last = _last_log_line(b)
+        print(f"- [[{r[:-3]}]] — {_title(r, b)} (role: {f.get('role') or '—'}; "
+              f"status: {f.get('status')})" + (f" — last: {last}" if last else ""))
+    if not repos:
+        print("- (none)")
 
 
 def cmd_meetings(vault, args):
@@ -373,6 +383,149 @@ def cmd_projects(vault, args):
             print(f"- [[{rel[:-3]}]] \u2014 {_title(rel, body)} "
                   f"(area: {fm.get('area')}; open tasks: {open_n})")
     if not projects:
+        print("- (none)")
+
+
+def _repo_notes(vault):
+    return _notes(vault, "Repos", "repo")
+
+
+def _last_log_line(body):
+    """Most recent `## Activity Log` entry (dated lines are appended in
+    chronological order, so the last one is the newest), or None."""
+    lines = [l.strip() for l in section_text(body, "Activity Log").splitlines()
+             if l.strip().startswith("-")]
+    return lines[-1][2:].strip() if lines else None
+
+
+def _repo_known_list(vault):
+    out = []
+    for r, f, b in sorted(_repo_notes(vault)):
+        out.append(f"[[Repos/{Path(r).stem}]] (project: {f.get('project')}, "
+                   f"status: {f.get('status')}, path: {f.get('path') or '—'})")
+    return out
+
+
+def _detect_cwd_repo(vault):
+    """cwd -> ([(rel, fm, body), ...], stage_name). Three ordered stages —
+    path, git remote, directory basename — each stage's own hits decide the
+    outcome: ambiguity at a stage is terminal and never falls through to a
+    weaker later signal. ([], None) when nothing matches anywhere."""
+    cwd = Path.cwd().resolve()
+    repos = _repo_notes(vault)
+
+    by_path = [r for r in repos if r[1].get("path")
+               and Path(r[1]["path"]).expanduser().resolve() == cwd]
+    if by_path:
+        return by_path, "path"
+
+    remote = git_remote_url(cwd)
+    if remote:
+        norm = normalize_remote(remote)
+        by_remote = [r for r in repos if r[1].get("remote")
+                     and normalize_remote(r[1]["remote"]) == norm]
+        if by_remote:
+            return by_remote, "git remote"
+
+    base = slugify(cwd.name)
+    by_name = [r for r in repos if base and slugify(_title(r[0], r[2])) == base]
+    if by_name:
+        return by_name, "directory name"
+
+    return [], None
+
+
+def cmd_repo(vault, args):
+    """One-shot repo status: note fm + body, its project's context, and its
+    sibling repos in the same project (what else is going on in this
+    project). With no name, auto-detects the repo from the current directory
+    (`_detect_cwd_repo`) instead of requiring it to be typed every time."""
+    repos = _repo_notes(vault)
+    name = getattr(args, "name", None)
+    if name:
+        want = slugify(name)
+        exact = [(r, f, b) for r, f, b in repos
+                 if Path(r).stem == want or slugify(_title(r, b)) == want]
+        matches = exact or [(r, f, b) for r, f, b in repos
+                            if want in Path(r).stem or Path(r).stem in want]
+        if not matches:
+            print(f"# Repo '{name}'\n\nNo repo note matches '{want}'.")
+            print("\n## All repos")
+            for line in _repo_known_list(vault):
+                print(f"- {line}")
+            return
+        if len(matches) > 1:
+            print(f"# Repo '{name}' — {len(matches)} matches\n")
+            for r, f, b in matches:
+                print(f"- [[{r[:-3]}]] — {_title(r, b)} (project: "
+                      f"{f.get('project')}, status: {f.get('status')})")
+            return
+        rel, fm, body = matches[0]
+    else:
+        hits, stage = _detect_cwd_repo(vault)
+        if not hits:
+            print(f"# Repo (auto-detect)\n\nNo repo note matches the current "
+                  f"directory ({Path.cwd()}).")
+            print("\nPass the name explicitly, or register this directory "
+                  "with `brain capture repo --name NAME --project SLUG`.")
+            print("\n## Known repos")
+            for line in _repo_known_list(vault):
+                print(f"- {line}")
+            return
+        if len(hits) > 1:
+            print(f"# Repo (auto-detect) — {len(hits)} repos share the same "
+                  f"{stage} as the current directory\n")
+            for r, f, b in hits:
+                print(f"- [[{r[:-3]}]] — {_title(r, b)} (project: {f.get('project')})")
+            print("\nPass the name explicitly.")
+            return
+        rel, fm, body = hits[0]
+
+    slug = Path(rel).stem
+    project_slug = fm.get("project")
+    print(f"# {_title(rel, body)} ([[{rel[:-3]}]])\n")
+    print(f"- project: {project_slug}  role: {fm.get('role') or '—'}  "
+          f"status: {fm.get('status')}")
+    print(f"\n## Note body\n\n{body.strip()}")
+
+    proj = next(((r, f, b) for r, f, b in _project_notes(vault)
+                 if Path(r).stem == project_slug), None)
+    if proj:
+        pr, pf, pb = proj
+        ctx = section_text(pb, "Context").strip()
+        print(f"\n## Project context ([[{pr[:-3]}]])\n")
+        print(ctx or "(no context yet)")
+
+    siblings = sorted((r for r in repos
+                       if r[1].get("project") == project_slug
+                       and Path(r[0]).stem != slug),
+                      key=lambda r: Path(r[0]).stem)
+    print(f"\n## Other repos in this project ({len(siblings)})")
+    for r, f, b in siblings:
+        last = _last_log_line(b)
+        print(f"- [[{r[:-3]}]] — {_title(r, b)} (role: {f.get('role') or '—'}; "
+              f"status: {f.get('status')})" + (f" — last: {last}" if last else ""))
+    if not siblings:
+        print("- (none)")
+
+
+def cmd_repos(vault, args):
+    repos = [(r, f, b) for r, f, b in _repo_notes(vault)
+             if args.status in ("all", f.get("status"))
+             and (not args.project or f.get("project") == args.project)]
+    print(f"# Repos ({len(repos)})")
+    for status in ("active", "archived"):
+        grp = sorted((r for r in repos if r[1].get("status") == status),
+                     key=lambda r: Path(r[0]).stem)
+        if not grp:
+            continue
+        print(f"\n## {status} ({len(grp)})")
+        for rel, fm, body in grp:
+            last = _last_log_line(body)
+            print(f"- [[{rel[:-3]}]] — {_title(rel, body)} (project: "
+                  f"{fm.get('project')}; role: {fm.get('role') or '—'})"
+                  + (f" — last: {last}" if last else ""))
+    if not repos:
         print("- (none)")
 
 

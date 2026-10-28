@@ -11,7 +11,7 @@ from .capture import (_read_file, ensure_daily, ensure_person, flatten_headings,
                       promote_task, resolve_owner)
 from .core import die, iso_week, owner_link, parse_week, today
 from .people import people_stems, resolve_stem
-from .projects import project_rels
+from .projects import project_rels, require_project_slug
 from .refs import resolve_ref
 from .body import append_block, one_line, set_h1, sync_meta
 from .writer import Plan, ensure_line_in_section
@@ -117,6 +117,23 @@ def _set_project(plan, rel, fm, body, a):
     return fm, body
 
 
+def _set_repo(plan, rel, fm, body, a):
+    if a.status:
+        fm["status"] = a.status
+    changed = set()
+    if a.role is not None:
+        fm["role"] = _value(a.role, nullable=True)
+        changed.add("role")
+    if a.project is not None:
+        fm["project"] = require_project_slug(plan.vault, _value(a.project, nullable=False))
+        changed.add("project")
+    if a.path is not None:
+        fm["path"] = _value(a.path, nullable=True)
+    if a.remote is not None:
+        fm["remote"] = _value(a.remote, nullable=True)
+    return fm, (sync_meta("repo", fm, body, fields=changed) if changed else body)
+
+
 def _set_person(plan, rel, fm, body, a):
     if a.org:
         fm["org"] = a.org
@@ -165,6 +182,7 @@ SET_HANDLERS = {
                          "week")),
     "followup": (_set_followup, ("status", "about")),
     "project": (_set_project, ("status", "area")),
+    "repo": (_set_repo, ("status", "role", "project", "path", "remote")),
     "person": (_set_person, ("org", "role", "email")),
     "interview": (_set_interview, ("verdict", "round")),
     "content": (_set_content, ("status",)),
@@ -264,6 +282,7 @@ APPEND_HANDLERS = {
     "followup": _append_log("Updates"),
     "task": _append_log("Notes"),
     "project": _append_project,
+    "repo": _append_log("Activity Log"),
     "meeting": _append_meeting,
     "interview": _append_interview,
 }

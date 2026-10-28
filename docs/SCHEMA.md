@@ -14,6 +14,7 @@ of truth is `skills/second-brain/scripts/lib/core.py` (`FOLDERS`, `ENUMS`,
 | `Transcripts/` | transcript | `topic-YYYY-MM-DD-transcript.md` |
 | `Interviews/` | interview | `first-last-role-YYYY-MM-DD.md` |
 | `Projects/` | project | `slug.md` or `slug/slug.md` (other files inside a project folder are `reference`) |
+| `Repos/` | repo | `project-repo.md` (project-prefixed, since repo names like `api` collide across projects) |
 | `People/` | person | `Firstname-Lastname.md` (single names are allowed) |
 | `Tasks/` | task | `slug.md`; the CLI writes `area-slug.md` |
 | `Follow-ups/` | followup | `slug.md`; the CLI writes `firstname-topic.md` |
@@ -83,6 +84,11 @@ tags: [<type>, ...]
 | | `status` | `waiting`, `done` |
 | project | `status` | `active`, `paused`, `done` |
 | | `area` | `client`, `internal`, `admin`, `learning` |
+| repo | `project` | project slug, required — a repo always belongs to one project |
+| | `status` | `active`, `archived` |
+| | `role` | text or `null` (e.g. `api`, `frontend`, `infra`; no enum — too variable) |
+| | `path` | local filesystem path or `null`; used to auto-detect "the repo I'm in" |
+| | `remote` | git remote URL or `null`; second auto-detect signal |
 | content | `status` | `draft`, `published` |
 | daily, transcript, reference | — | no extra fields |
 
@@ -107,6 +113,27 @@ Interview candidates are always `external`.
   `query waiting-on`.
 - A `followup` means **the owner is waiting on `who`**. If the owner owes
   someone, it is a task, not a follow-up.
+
+## Multi-repo projects
+
+A `project` can span several repos. Each repo gets its own `repo` note
+pointing up at its project (the project note's body never stores a list of
+its repos — `query project` and `query repo` both aggregate repos
+dynamically, the same way they already aggregate tasks and meetings).
+
+`query repo` with no name auto-detects which repo note matches the current
+directory, trying three signals in order and stopping at the first one that
+produces a match — ambiguity at a stage (e.g. two repo notes sharing a
+`path`) is a terminal error, it never falls through to a weaker later signal:
+
+1. `path` — an exact match against the current directory.
+2. `remote` — the output of `git remote get-url origin` in the current
+   directory, compared loosely (trailing `/` and `.git` ignored; ssh vs.
+   https forms are NOT treated as equal).
+3. the current directory's name, matched against the repo note's title.
+
+With no match at all, the command lists every known repo and asks for the
+name explicitly, or for `brain capture repo` to register the directory.
 
 ## Sections
 
@@ -137,6 +164,10 @@ or assessment; the CLI refuses otherwise.
 - Warnings (not errors): a `task.project` / `meeting.project` with no project
   note; a body meta line (`**Owner:**`, `**Role:**`, `**Verdict:**`, …) that
   disagrees with its frontmatter field (`lint --fix-safe` re-syncs it).
+- A `repo.project` with no matching project note is an **error**, not a
+  warning — unlike task/meeting, a repo's `project` is required and
+  validated against existing project notes at write time, so it should
+  always resolve.
 
 ## Mutability
 
@@ -148,6 +179,7 @@ changing a task's `--desc` or a follow-up's `--about` changes only the H1.
 | task | slug | `status`, `priority`, `area`, `owner`, `project`, `desc`, `week` | `## Notes` (dated line) |
 | followup | slug | `status`, `about` | `## Updates` (dated line) |
 | project | slug | `status`, `area` | `## Context` (prose), `## Milestones` (`- [ ]` lines) |
+| repo | slug | `status`, `role`, `project`, `path`, `remote` | `## Activity Log` (dated line) |
 | person | name | `org`, `role`, `email` | `## Notes` (dated line) |
 | interview | candidate, role, date | `verdict`, `round` | `## Notes During Interview`, `## Assessment` |
 | meeting | title, date | `project`, attendees | `## Summary` (prose), `## Decisions` |

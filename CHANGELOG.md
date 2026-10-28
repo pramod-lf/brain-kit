@@ -4,6 +4,34 @@ All notable changes to brain-kit. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] - 2026-10-28
+
+Multi-repo projects: a project can now span several git repos, each with its
+own persistent context, and brain-kit pulls in the other repos' status
+whichever one you're working in.
+
+### Added
+- A new `repo` note type (`Repos/`): `brain capture repo --name NAME
+  --project SLUG [--role R] [--path PATH] [--remote URL] [--purpose TEXT]`
+  registers a repo under a project. Run from inside the repo's checkout with
+  no `--path`/`--remote` and both default to the current directory and its
+  git remote — a one-command way to register "this repo."
+- `brain query repo [NAME]` — with no name, auto-detects which repo note
+  matches the current directory (by stored path, then git remote, then
+  directory name) and prints that repo's own context, its project's
+  `## Context`, and a live list of its sibling repos in the same project
+  (each with their most recent activity-log line) — the "what's going on
+  elsewhere in this project" view. `brain query repos [--project SLUG]
+  [--status active|archived]` lists every repo.
+- `brain set repo REF [--status active|archived] [--role R] [--project SLUG]
+  [--path PATH] [--remote URL]` and `brain append repo REF --text "…"` (logs
+  a dated line to `## Activity Log`).
+- `brain query project NAME` now also lists the project's repos.
+- `lint` treats a repo whose `project` does not resolve to an existing
+  project note as an error (task/meeting treat the same situation as a
+  warning, since their `project` is inferred and advisory; a repo's is
+  required and validated at write time).
+
 ## [1.2.0] - 2026-10-27
 
 The CLI now captures, edits and reads every kind of note, so nothing has to

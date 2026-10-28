@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from . import fmyaml
+from .core import die
 
 
 def active_project_slugs(vault):
@@ -35,3 +36,14 @@ def project_rels(vault):
         if len(parts) == 2 or (len(parts) == 3 and parts[1] == f.stem):
             out[f.stem] = "/".join(parts)
     return out
+
+
+def require_project_slug(vault, slug):
+    """A repo must belong to an existing project note (any status) — unlike
+    task/meeting's advisory `project`, this is enforced at write time."""
+    known = project_rels(vault)
+    if slug not in known:
+        near = ", ".join(sorted(known)) or "(no projects yet)"
+        die(f"no such project: '{slug}'. Known projects: {near}. Create one "
+            "with `brain capture project`. Nothing was written.")
+    return slug

@@ -26,6 +26,7 @@ written by `brain capture ...`, not by hand.
 | `Transcripts/` | transcript | `topic-YYYY-MM-DD-transcript.md` |
 | `Interviews/` | interview | `first-last-role-YYYY-MM-DD.md` |
 | `Projects/` | project | `slug.md` or `slug/slug.md` |
+| `Repos/` | repo | `project-repo.md` (project-prefixed to avoid name collisions) |
 | `People/` | person | `Firstname-Lastname.md` |
 | `Tasks/` | task | `slug.md` (CLI-written ones are `area-slug.md`) |
 | `Follow-ups/` | followup | `firstname-topic.md` |
@@ -214,6 +215,28 @@ area: internal
 ## Context
 
 ## Milestones
+""",
+    "Repo": """---
+type: repo
+schema: 1
+created: {{date}}
+tags:
+  - repo
+project: PROJECT-SLUG
+status: active
+role: null
+path: null
+remote: null
+---
+
+# {{title}}
+
+**Project:** [[Projects/PROJECT-SLUG]]
+**Role:** —
+
+## Purpose
+
+## Activity Log
 """,
     "Follow-up": """---
 type: followup
